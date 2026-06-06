@@ -1,31 +1,62 @@
-# Servicio de Telemetria con Deteccion de Fallos
+# Servicio de Telemetría con Detección de Fallos
 
-
-Proyecto base para la parte B de la Practica Guiada 2: RPC, reintentos y deteccion de fallos.
+Proyecto para la **Parte B** de la Práctica Guiada 2: **RPC**, reintentos y detección de fallos.
 
 ## Integrantes
 
-Martinez Lazaro Ezequiel
-Mendoza Guadalupe Maira
+- Martinez Lazaro Ezequiel
+- Mendoza Guadalupe Maira
 
-## Ejecucion
+---
 
-### Local
+## Descripción
 
-```bash
-# Terminal 1: Servidor
-make run-servidor
+Este proyecto implementa un **sistema de telemetría distribuido** con:
 
-# Terminal 2: Cliente
-NOMBRE=cliente-a SERVIDOR=localhost:1234 make run-cliente
+1. **Servidor RPC** (sobre `net/rpc` de Go) que expone los métodos `RegistrarLectura` y `ObtenerUltimaLectura` para recibir y consultar datos de sensores.
+2. **Clientes RPC** que envían periódicamente lecturas de temperatura simuladas al servidor y consultan la última lectura registrada.
+3. **Heartbeat UDP** enviado por el servidor a todos los clientes registrados. Los clientes detectan el estado del servidor mediante timeouts con transiciones de estado: `alive` → `suspect` → `dead`.
+4. **Protocolo JSON** en todos los mensajes intercambiados (structs con tags `json`).
 
-# Terminal 3: Segundo cliente
-NOMBRE=cliente-b SERVIDOR=localhost:1234 make run-cliente
+**Flujo del Heartbeat:**
+- El servidor envía heartbeats UDP periódicos a cada cliente.
+- El cliente monitorea la recepción y calcula el tiempo de inactividad.
+- Si no recibe heartbeat en un período (`timeout`): estado → `suspect`.
+- Si supera el doble del timeout: estado → `dead`.
+- Si se recupera la recepción: estado → `alive`.
+
+---
+
+## Estructura del proyecto
+
+```
+ParteB/
+├── cmd/
+│   ├── servidor/main.go      # Punto de entrada del servidor RPC + Heartbeat
+│   └── cliente/main.go       # Punto de entrada del cliente RPC + detector
+├── internal/
+│   └── detector/heartbeat.go # Enviador y Receptor de heartbeats UDP
+├── pkg/
+│   ├── protocolo/mensaje.go  # Structs del protocolo: Heartbeat, Lectura, etc.
+│   └── telemetria/servicio.go# Servicio RPC: RegistrarLectura, ObtenerUltimaLectura
+├── Dockerfile.servidor       # Imagen Docker del servidor
+├── Dockerfile.cliente        # Imagen Docker del cliente
+├── docker-compose.yml        # Orquestación: servidor + 2 clientes
+└── Makefile                  # Comandos de conveniencia
 ```
 
-### Docker Compose (interactivo)
+---
 
-**1. Levantar solo el servidor** (en background):
+## Ejecución
+
+### Requisitos previos
+
+- **Docker** y **Docker Compose** instalados.
+- (Opcional para ejecución local) **Go 1.22+**.
+
+### Docker Compose (modo recomendado)
+
+**1. Levantar el servidor** (en background):
 ```bash
 make docker-up
 ```
@@ -49,18 +80,58 @@ make docker-logs
 make docker-down
 ```
 
+### Ejecución local
+
+```bash
+# Terminal 1: Servidor
+make run-servidor
+
+# Terminal 2: Cliente 1
+NOMBRE=cliente-a SERVIDOR=localhost:1234 make run-cliente
+
+# Terminal 3: Cliente 2
+NOMBRE=cliente-b SERVIDOR=localhost:1234 make run-cliente
+```
+
+---
+
+## Variables de entorno
+
+### Servidor
+
+| Variable            | Default      | Descripción                                       |
+| ------------------- | ------------ | ------------------------------------------------- |
+| `RPC_PUERTO`        | `:1234`      | Puerto TCP para el servicio RPC                   |
+| `HEARTBEAT_PUERTO`  | `:4001`      | Puerto UDP para enviar heartbeats                 |
+| `HEARTBEAT_DESTINO` | `""`         | Destinos UDP de los clientes (separados por coma) |
+| `NODO_ID`           | `servidor-1` | Identificador del nodo servidor                   |
+
+### Cliente
+
+| Variable           | Default         | Descripción                        |
+| ------------------ | --------------- | ---------------------------------- |
+| `SERVIDOR`         | `servidor:1234` | Dirección del servidor RPC         |
+| `NOMBRE`           | `cliente-1`     | Nombre identificador del cliente   |
+| `HEARTBEAT_PUERTO` | `:4002`         | Puerto UDP para recibir heartbeats |
+
+---
+
 ## Requisitos completados
 
-- [X ] Servidor RPC con metodos `RegistrarLectura` y `ObtenerUltimaLectura`
-- [X ] Protocolo JSON en todos los mensajes (structs con tags json)
-- [ X] Cliente RPC con loop automatico de lecturas
-- [X ] Heartbeat UDP: servidor envia, cliente detecta timeout con estados `alive/suspect/dead`
-- [ X] Docker Compose con al menos 1 servidor + 2 clientes
+- [x] Servidor RPC con métodos `RegistrarLectura` y `ObtenerUltimaLectura`
+- [x] Protocolo JSON en todos los mensajes (structs con tags `json`)
+- [x] Cliente RPC con loop automático de lecturas
+- [x] Heartbeat UDP: servidor envía, cliente detecta timeout con estados `alive`/`suspect`/`dead`
+- [x] Docker Compose con al menos 1 servidor + 2 clientes
 
-## Captura de ejecucion
+---
 
-_(Adjuntar log o captura de pantalla mostrando heartbeats, transiciones de estado y llamadas RPC)_
-## Captura de ejecucion
+## Captura de ejecución
 
+A continuación se muestra la ejecución del sistema completo, donde se puede observar:
+- **Servidor** registrando lecturas exitosamente con IDs incrementales (`[RPC-Server] Lectura registrada exitosamente [#72]`)
+- **Cliente 1 y Cliente 2** enviando lecturas de temperatura y recibiendo confirmación del servidor
+- Consultas de la última lectura registrada desde los clientes (`ObtenerUltimaLectura`)
+- Ciclos de envío finalizando correctamente en ambos clientes
 
-![Logs de la consola distribuyendo telemetría](imagen.png)
+![Ejecución del sistema de telemetría - se observan las llamadas RPC de ambos clientes al servidor, registro de lecturas y consultas exitosas](image.png)
